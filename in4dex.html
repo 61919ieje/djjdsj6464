@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>简易投篮小游戏</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: #f0f0f0;
+            font-family: Arial;
+        }
+        canvas {
+            border: 2px solid #333;
+            background: #87ceeb;
+        }
+        .info {
+            margin: 10px;
+            font-size: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="info">得分：<span id="score">0</span></div>
+    <canvas id="game" width="400" height="600"></canvas>
+
+    <script>
+        const canvas = document.getElementById('game');
+        const ctx = canvas.getContext('2d');
+        const scoreEl = document.getElementById('score');
+
+        // 球
+        let ball = {
+            x: 100,
+            y: 500,
+            r: 15,
+            vx: 0,
+            vy: 0,
+            speed: 12,
+            isShoot: false
+        };
+
+        // 篮筐
+        const hoop = {
+            x: 200,
+            y: 120,
+            w: 60,
+            h: 10
+        };
+
+        let score = 0;
+
+        // 绘制球
+        function drawBall() {
+            ctx.beginPath();
+            ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+            ctx.fillStyle = '#ff6b6b';
+            ctx.fill();
+            ctx.closePath();
+        }
+
+        // 绘制篮筐
+        function drawHoop() {
+            ctx.fillStyle = '#ffd700';
+            ctx.fillRect(hoop.x - hoop.w/2, hoop.y, hoop.w, hoop.h);
+        }
+
+        // 重力
+        function physics() {
+            if (ball.isShoot) {
+                ball.vy += 0.5;
+                ball.x += ball.vx;
+                ball.y += ball.vy;
+            }
+
+            // 出界重置
+            if (ball.y > 600 || ball.x < 0 || ball.x > 400) {
+                resetBall();
+            }
+
+            // 进球判断
+            if (
+                ball.y + ball.r > hoop.y &&
+                ball.y - ball.r < hoop.y + hoop.h &&
+                ball.x > hoop.x - hoop.w/2 &&
+                ball.x < hoop.x + hoop.w/2 &&
+                ball.vy > 0 &&
+                !ball.scored
+            ) {
+                score++;
+                scoreEl.textContent = score;
+                ball.scored = true;
+                setTimeout(resetBall, 300);
+            }
+        }
+
+        function resetBall() {
+            ball.x = 100;
+            ball.y = 500;
+            ball.vx = 0;
+            ball.vy = 0;
+            ball.isShoot = false;
+            ball.scored = false;
+        }
+
+        // 鼠标/触屏投篮
+        canvas.addEventListener('mousedown', shoot);
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            shoot();
+        });
+
+        function shoot() {
+            if (!ball.isShoot) {
+                ball.isShoot = true;
+                ball.vx = ball.speed;
+                ball.vy = -ball.speed * 1.8;
+            }
+        }
+
+        // 游戏循环
+        function loop() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawHoop();
+            drawBall();
+            physics();
+            requestAnimationFrame(loop);
+        }
+
+        loop();
+    </script>
+</body>
+</html>
