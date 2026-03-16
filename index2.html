@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>切虫游戏</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f0f0f0; }
+        #gameCanvas { background: #fff; position: relative; margin: auto; display: block; }
+        #score { font-size: 24px; }
+    </style>
+</head>
+<body>
+    <h1>切虫游戏</h1>
+    <div id="score">分数: 0</div>
+    <canvas id="gameCanvas" width="400" height="600"></canvas>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        let score = 0;
+        let insects = [];
+        let level = 1;
+        let gameInterval;
+        const insectTypes = [
+            { name: 'earthworm', speed: 2, health: 1 },
+            { name: 'fly', speed: 4, health: 1 },
+            { name: 'caterpillar', speed: 3, health: 2 }
+        ];
+
+        function startGame() {
+            gameInterval = setInterval(updateGameArea, 20);
+            spawnInsect();
+        }
+
+        function updateGameArea() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            insects.forEach(insect => {
+                insect.y -= insect.speed;
+                ctx.fillText(insect.name, insect.x, insect.y);
+                if (insect.y < 0) {
+                    clearInterval(gameInterval);
+                    alert('游戏结束! 分数: ' + score);
+                }
+            });
+        }
+
+        function spawnInsect() {
+            const insectType = insectTypes[Math.floor(Math.random() * insectTypes.length)];
+            insects.push({
+                name: insectType.name,
+                x: Math.random() * canvas.width,
+                y: canvas.height,
+                speed: insectType.speed
+            });
+            setTimeout(spawnInsect, 1000 / level);
+        }
+
+        canvas.addEventListener('touchstart', function(e) {
+            const touchPosition = getTouchPosition(e);
+            insects = insects.filter(insect => {
+                if (isTouchingInsect(touchPosition, insect)) {
+                    score += 10 * insect.health;
+                    return false; // Remove insect
+                }
+                return true;
+            });
+            document.getElementById('score').innerText = '分数: ' + score;
+        });
+
+        function getTouchPosition(e) {
+            const rect = canvas.getBoundingClientRect();
+            return {
+                x: e.touches[0].clientX - rect.left,
+                y: e.touches[0].clientY - rect.top
+            };
+        }
+
+        function isTouchingInsect(touchPosition, insect) {
+            // Simple detection logic for touching the insect
+            return (touchPosition.x > insect.x - 15 && touchPosition.x < insect.x + 15 &&
+                    touchPosition.y > insect.y - 15 && touchPosition.y < insect.y + 15);
+        }
+
+        startGame();
+    </script>
+</body>
+</html>
