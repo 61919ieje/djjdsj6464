@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>投篮小游戏</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+        }
+        body {
+            background: #1e3b4a;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .game-container {
+            background: #0d3140;
+            padding: 20px;
+            border-radius: 30px;
+        }
+        canvas {
+            display: block;
+            width: 800px;
+            height: 500px;
+            border-radius: 20px;
+            background: #4b7b9c;
+            cursor: grab;
+        }
+        canvas.dragging {
+            cursor: grabbing;
+        }
+        .info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 15px;
+            color: #ffd966;
+        }
+        .score {
+            background: #1d4d5e;
+            padding: 8px 25px;
+            border-radius: 30px;
+            font-size: 28px;
+            font-weight: bold;
+        }
+        button {
+            background: #f4b266;
+            border: none;
+            padding: 10px 30px;
+            border-radius: 30px;
+            font-size: 22px;
+            font-weight: bold;
+            color: #1d3b47;
+            cursor: pointer;
+            border-bottom: 4px solid #a55f2a;
+        }
+        button:active {
+            transform: translateY(2px);
+            border-bottom-width: 2px;
+        }
+        .hint {
+            font-size: 20px;
+            color: #c0e4ff;
+        }
+    </style>
+</head>
+<body>
+<div class="game-container">
+    <canvas id="gameCanvas" width="800" height="500"></canvas>
+    <div class="info">
+        <div class="score">🏀 <span id="scoreValue">0</span></div>
+        <div class="hint">👇 拖拽球 松开投篮</div>
+        <button id="resetButton">🔄 重置</button>
+    </div>
+</div>
+
+<script>
+    (function() {
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreSpan = document.getElementById('scoreValue');
+
+        const GROUND_Y = 460;
+        const BALL_RADIUS = 16;
+        const HOOP = { x: 620, y: 180, radius: 24 };
+
+        let ball = { x: 220, y: GROUND_Y - BALL_RADIUS, vx: 0, vy: 0, r: BALL_RADIUS };
+        let score = 0;
+        let isMoving = false;
+        let scoredThisShot = false;
+        let dragging = false;
+        let dragX = 0, dragY = 0;
+
+        function resetBall() {
+            ball.x = 220;
+            ball.y = GROUND_Y - BALL_RADIUS;
+            ball.vx = 0;
+            ball.vy = 0;
+            isMoving = false;
+            scoredThisShot = false;
+            dragging = false;
+            canvas.classList.remove('dragging');
+        }
+
+        function resetGame() {
+            score = 0;
+            scoreSpan.textContent = '0';
+            resetBall();
+        }
+
+        function updateScore() {
+            scoreSpan.textContent = score;
+        }
+
+        function getMousePos(e) {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            let clientX, clientY;
+            if (e.touches) {
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+            } else {
+                clientX = e.clientX;
+                clientY = e.clientY;
+            }
+            return {
+                x: (clientX - rect.left) * scaleX,
+                y: (clientY - rect.top) * scaleY
+            };
+        }
+
+        function onMouseDown(e) {
+            e.preventDefault();
+            if (isMoving) return;
+            const pos = getMousePos(e);
+            const dx = pos.x - ball.x;
+            const dy = pos.y - ball.y;
+            if (Math.hypot(dx, dy) <= ball.r + 10) {
+                dragging = true;
+                dragX = pos.x;
+                dragY = pos.y;
+                canvas.classList.add('dragging');
+            }
+        }
+
+        function onMouseMove(e) {
+            if (!dragging) return;
+            e.preventDefault();
+            const pos = getMousePos(e);
+            dragX = pos.x;
+            dragY = pos.y;
+        }
+
+        function onMouseUp(e) {
+            if (!dragging) {
+                canvas.classList.remove('dragging');
+                return;
+            }
+            e.preventDefault();
+
+            let dx = ball.x - dragX;
+            let dy = ball.y - dragY;
+            const dist = Math.hypot(dx, dy);
+            const MAX_DRAG = 140;
+            if (dist > MAX_DRAG) {
+                const ratio = MAX_DRAG / dist;
+                dx *= ratio;
+                dy *= ratio;
+            }
+
+            ball.vx = dx * 0.12;
+            ball.vy = dy * 0.12;
+
+            if (Math.hypot(ball.vx, ball.vy) > 0.8) {
+                isMoving = true;
+                scoredThisShot = false;
+            } else {
+                ball.vx = 0;
+                ball.vy = 0;
+            }
+
+            dragging = false;
+            canvas.classList.remove('dragging');
+        }
+
+        canvas.addEventListener('mousedown', onMouseDown);
+        canvas.addEventListener('mousemove', onMouseMove);
+        canvas.addEventListener('mouseup', onMouseUp);
+        canvas.addEventListener('mouseleave', () => {
+            if (dragging) {
+                dragging = false;
+                canvas.classList.remove('dragging');
+            }
+        });
+
+        canvas.addEventListener('touchstart', onMouseDown, { passive: false });
+        canvas.addEventListener('touchmove', onMouseMove, { passive: false });
+        canvas.addEventListener('touchend', onMouseUp);
+        canvas.addEventListener('touchcancel', () => {
+            dragging = false;
+            canvas.classList.remove('dragging');
+        });
+
+        document.getElementById('resetButton').addEventListener('click', resetGame);
+
+        function update() {
+            if (isMoving) {
+                ball.vx *= 0.985;
+                ball.vy *= 0.985;
+                ball.vy += 0.4;
+
+                let newX = ball.x + ball.vx;
+                let newY = ball.y + ball.vy;
+
+                if (newX - ball.r < 0) { newX = ball.r; ball.vx *= -0.6; }
+                if (newX + ball.r > 800) { newX = 800 - ball.r; ball.vx *= -0.6; }
+                if (newY - ball.r < 0) { newY = ball.r; ball.vy *= -0.6; }
+
+                if (newY + ball.r > GROUND_Y) {
+                    newY = GROUND_Y - ball.r;
+                    ball.vy *= -0.65;
+                    ball.vx *= 0.95;
+                    if (Math.abs(ball.vy) < 0.3 && Math.abs(ball.vx) < 0.2) {
+                        resetBall();
+                        return;
+                    }
+                }
+
+                ball.x = newX;
+                ball.y = newY;
+
+                const distToHoop = Math.hypot(ball.x - HOOP.x, ball.y - HOOP.y);
+                if (distToHoop < HOOP.radius + ball.r * 0.7 && ball.vy > 0 && !scoredThisShot) {
+                    score++;
+                    updateScore();
+                    scoredThisShot = true;
+                    resetBall();
+                    return;
+                }
+
+                if (Math.abs(ball.vy) < 0.1 && Math.abs(ball.vx) < 0.1 && ball.y + ball.r >= GROUND_Y - 2) {
+                    resetBall();
+                }
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, 800, 500);
+
+            ctx.fillStyle = '#5887a9';
+            ctx.fillRect(0, 0, 800, 500);
+
+            ctx.fillStyle = '#2b7342';
+            ctx.fillRect(0, GROUND_Y, 800, 40);
+
+            ctx.fillStyle = '#8b6b4d';
+            ctx.fillRect(HOOP.x - 40, HOOP.y - 80, 20, 130);
+
+            ctx.beginPath();
+            ctx.arc(HOOP.x, HOOP.y, HOOP.radius, 0, 2 * Math.PI);
+            ctx.strokeStyle = '#ffa726';
+            ctx.lineWidth = 6;
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(ball.x, ball.y, ball.r, 0, 2 * Math.PI);
+            ctx.fillStyle = '#cc7220';
+            ctx.fill();
+            ctx.strokeStyle = '#2b1e0e';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(ball.x - 12, ball.y - 8);
+            ctx.lineTo(ball.x + 12, ball.y + 8);
+            ctx.moveTo(ball.x - 12, ball.y + 8);
+            ctx.lineTo(ball.x + 12, ball.y - 8);
+            ctx.stroke();
+
+            if (dragging) {
+                ctx.beginPath();
+                ctx.setLineDash([5, 5]);
+                ctx.moveTo(ball.x, ball.y);
+                ctx.lineTo(dragX, dragY);
+                ctx.strokeStyle = '#fff9d0';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.arc(ball.x, ball.y, 140, 0, 2 * Math.PI);
+                ctx.strokeStyle = '#ffecaa';
+                ctx.setLineDash([2, 6]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+        }
+
+        function loop() {
+            update();
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        loop();
+        resetBall();
+    })();
+</script>
+</body>
+</html>
