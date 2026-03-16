@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>切虫子保护花盆</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            background: #2d5016;
+            font-family: Arial, sans-serif;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+            overflow: hidden;
+        }
+
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            touch-action: none;
+        }
+
+        #gameContainer {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            background: linear-gradient(180deg, #87CEEB 0%, #90EE90 100%);
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            color: #fff;
+            font-size: 18px;
+            font-weight: bold;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 15px;
+            border-radius: 10px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .ui-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        #gameOverScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: none;
+            z-index: 200;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+        }
+
+        #gameOverScreen.show {
+            display: flex;
+        }
+
+        #gameOverContent {
+            text-align: center;
+            color: #fff;
+        }
+
+        #gameOverContent h1 {
+            font-size: 48px;
+            margin-bottom: 20px;
+            color: #ffd700;
+        }
+
+        #gameOverContent p {
+            font-size: 24px;
+            margin-bottom: 30px;
+            color: #fff;
+        }
+
+        #gameOverContent button {
+            padding: 16px 40px;
+            font-size: 20px;
+            background: #ff6b6b;
+            color: #fff;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: bold;
+            margin-top: 20px;
+        }
+
+        #gameOverContent button:active {
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+        
+        <div id="ui">
+            <div class="ui-item">
+                <span>分数</span>
+                <span id="score">0</span>
+            </div>
+            <div class="ui-item">
+                <span>关卡</span>
+                <span id="level">1/3</span>
+            </div>
+            <div class="ui-item">
+                <span>花盆生命</span>
+                <span id="health">❤️❤️❤️</span>
+            </div>
+        </div>
+
+        <div id="gameOverScreen">
+            <div id="gameOverContent">
+                <h1 id="gameOverTitle">游戏结束</h1>
+                <p id="gameOverText">最终分数: 0</p>
+                <p id="gameOverLevel"></p>
+                <button onclick="location.reload()">重新开始</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        'use strict';
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // 游戏配置
+        const GAME_CONFIG = {
+            level1: { bugSpawnRate: 0.015, maxBugs: 8 },
+            level2: { bugSpawnRate: 0.025, maxBugs: 12 },
+            level3: { bugSpawnRate: 0.035, maxBugs: 16 }
+        };
+
+        // 游戏状态
+        let gameState = {
+            score: 0,
+            level: 1,
+            health: 3,
+            running: true,
+            frameCount: 0,
+            levelScore: 0,
+            levelTarget: 100
+        };
+
+        // 花盆对象
+        const pot = {
+            x: canvas.width / 2,
+            y: 40,
+            width: 80,
+            height: 60,
+
+            draw() {
+                // 花盆主体
+                ctx.fillStyle = '#E74C3C';
+                ctx.beginPath();
+                ctx.moveTo(this.x - 40, this.y + 40);
+                ctx.lineTo(this.x - 35, this.y);
+                ctx.lineTo(this.x + 35, this.y);
+                ctx.lineTo(this.x + 40, this.y + 40);
+                ctx.closePath();
+                ctx.fill();
+
+                // 花盆边缘
+                ctx.strokeStyle = '#C0392B';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+
+                // 花盆底座
+                ctx.fillStyle = '#A93226';
+                ctx.fillRect(this.x - 38, this.y + 38, 76, 8);
+
+                // 花朵
+                // 中心黄色花心
+                ctx.fillStyle = '#FFD700';
+                ctx.beginPath();
+                ctx.arc(this.x, this.y - 10, 8, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 红色花瓣
+                ctx.fillStyle = '#FF1744';
+                for (let i = 0; i < 5; i++) {
+                    const angle = (Math.PI * 2 / 5) * i;
+                    const px = this.x + Math.cos(angle) * 18;
+                    const py = this.y - 10 + Math.sin(angle) * 18;
+                    ctx.beginPath();
+                    ctx.ellipse(px, py, 6, 10, angle, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                // 绿色叶子
+                ctx.fillStyle = '#2ECC71';
+                ctx.beginPath();
+                ctx.ellipse(this.x - 35, this.y + 10, 10, 15, -0.3, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.ellipse(this.x + 35, this.y + 10, 10, 15, 0.3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        };
+
+        // 虫子类
+        class Bug {
+            constructor(type) {
+                this.type = type; // 'worm' 'fly' 'caterpillar'
+                this.x = Math.random() * (canvas.width - 100) + 50;
+                this.y = canvas.height;
+                this.vx = 0;
+                this.vy = 0;
+                this.width = 0;
+                this.height = 0;
+                this.health = 0;
+                this.maxHealth = 0;
+                this.points = 0;
+                this.dead = false;
+                this.rotation = 0;
+                this.wobbleTime = 0;
+
+                if (type === 'worm') {
+                    this.health = 1;
+                    this.maxHealth = 1;
+                    this.vy = -2.5;
+                    this.width = 20;
+                    this.height = 40;
+                    this.points = 10;
+                } else if (type === 'fly') {
+                    this.health = 1;
+                    this.maxHealth = 1;
+                    this.vy = -3.5;
+                    this.vx = (Math.random() - 0.5) * 2;
+                    this.width = 18;
+                    this.height = 20;
+                    this.points = 15;
+                } else if (type === 'caterpillar') {
+                    this.health = 2;
+                    this.maxHealth = 2;
+                    this.vy = -2;
+                    this.width = 30;
+                    this.height = 15;
+                    this.points = 20;
+                }
+            }
+
+            update() {
+                this.y += this.vy;
+                this.x += this.vx;
+                this.wobbleTime += 0.1;
+
+                // 屏幕边界反弹
+                if (this.x < 30) {
+                    this.x = 30;
+                    this.vx *= -1;
+                }
+                if (this.x > canvas.width - 30) {
+                    this.x = canvas.width - 30;
+                    this.vx *= -1;
+                }
+            }
+
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.rotation);
+
+                if (this.type === 'worm') {
+                    this.drawWorm();
+                } else if (this.type === 'fly') {
+                    this.drawFly();
+                } else if (this.type === 'caterpillar') {
+                    this.drawCaterpillar();
+                }
+
+                // 血量条
+                if (this.maxHealth > 1) {
+                    ctx.fillStyle = '#fff';
+                    ctx.fillRect(-this.width / 2, -this.height / 2 - 10, this.width, 3);
+                    ctx.fillStyle = this.health / this.maxHealth > 0.5 ? '#2ECC71' : '#FF6B6B';
+                    ctx.fillRect(-this.width / 2, -this.height / 2 - 10, (this.width * this.health) / this.maxHealth, 3);
+                }
+
+                ctx.restore();
+            }
+
+            drawWorm() {
+                ctx.fillStyle = '#D4A574';
+                ctx.strokeStyle = '#8B6914';
+                ctx.lineWidth = 2;
+
+                // 蚯蚓身体 - 分段圆形
+                for (let i = 0; i < 4; i++) {
+                    const offsetY = i * 10 - 15;
+                    const sineWave = Math.sin(this.wobbleTime + i * 0.5) * 3;
+                    ctx.beginPath();
+                    ctx.ellipse(sineWave, offsetY, 8, 8, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.stroke();
+                }
+
+                // 眼睛
+                ctx.fillStyle = '#000';
+                ctx.beginPath();
+                ctx.arc(-2, -18, 2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(2, -18, 2, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 嘴巴
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.arc(0, -14, 3, 0, Math.PI);
+                ctx.stroke();
+            }
+
+            drawFly() {
+                // 身体
+                ctx.fillStyle = '#333333';
+                ctx.beginPath();
+                ctx.ellipse(0, 0, 6, 8, 0, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 头部
+                ctx.fillStyle = '#444444';
+                ctx.beginPath();
+                ctx.arc(0, -7, 5, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 眼睛
+                ctx.fillStyle = '#FF0000';
+                ctx.beginPath();
+                ctx.arc(-2, -8, 2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(2, -8, 2, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 翅膀
+                ctx.strokeStyle = '#CCCCCC';
+                ctx.lineWidth = 2;
+                ctx.globalAlpha = 0.6;
+                // 左翅
+                ctx.beginPath();
+                ctx.ellipse(-6, -2, 8, 5, -0.3, 0, Math.PI * 2);
+                ctx.stroke();
+                // 右翅
+                ctx.beginPath();
+                ctx.ellipse(6, -2, 8, 5, 0.3, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.globalAlpha = 1;
+
+                // 腿
+                ctx.strokeStyle = '#333333';
+                ctx.lineWidth = 1.5;
+                for (let i = 0; i < 3; i++) {
+                    // 左腿
+                    ctx.beginPath();
+                    ctx.moveTo(-5, 2 + i * 3);
+                    ctx.lineTo(-8, 6 + i * 3);
+                    ctx.stroke();
+                    // 右腿
+                    ctx.beginPath();
+                    ctx.moveTo(5, 2 + i * 3);
+                    ctx.lineTo(8, 6 + i * 3);
+                    ctx.stroke();
+                }
+            }
+
+            drawCaterpillar() {
+                // 毛毛虫身体 - 多段组成
+                const segmentCount = 4;
+                const segmentSize = 8;
+
+                for (let i = 0; i < segmentCount; i++) {
+                    const offsetX = i * 8 - 12;
+                    const offsetY = Math.sin(this.wobbleTime * 0.15 + i * 0.4) * 2;
+                    
+                    // 身体节
+                    ctx.fillStyle = '#2ECC71';
+                    ctx.beginPath();
+                    ctx.ellipse(offsetX, offsetY, segmentSize, 6, 0, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // 节的纹理
+                    ctx.strokeStyle = '#27AE60';
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+
+                    // 腿
+                    ctx.strokeStyle = '#27AE60';
+                    ctx.lineWidth = 1.5;
+                    // 左腿
+                    ctx.beginPath();
+                    ctx.moveTo(offsetX - 5, offsetY + 3);
+                    ctx.lineTo(offsetX - 7, offsetY + 8);
+                    ctx.stroke();
+                    // 右腿
+                    ctx.beginPath();
+                    ctx.moveTo(offsetX + 5, offsetY + 3);
+                    ctx.lineTo(offsetX + 7, offsetY + 8);
+                    ctx.stroke();
+                }
+
+                // 头部
+                ctx.fillStyle = '#1ABC9C';
+                ctx.beginPath();
+                ctx.arc(-20, 0, 8, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 眼睛
+                ctx.fillStyle = '#000';
+                ctx.beginPath();
+                ctx.arc(-23, -3, 2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(-17, -3, 2, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 触角
+                ctx.strokeStyle = '#1ABC9C';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(-20, -6);
+                ctx.quadraticCurveTo(-22, -12, -20, -14);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(-20, -6);
+                ctx.quadraticCurveTo(-18, -12, -20, -14);
+                ctx.stroke();
+            }
+
+            isOffScreen() {
+                return this.y < -50;
+            }
+
+            checkCollision(x, y) {
+                const dx = x - this.x;
+                const dy = y - this.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                return distance < this.width / 2 + 5;
+            }
+        }
+
+        const bugs = [];
+        const particles = [];
+
+        // 粒子效果
+        class Particle {
+            constructor(x, y, color) {
+                this.x = x;
+                this.y = y;
+                this.vx = (Math.random() - 0.5) * 6;
+                this.vy = (Math.random() - 0.5) * 6 - 2;
+                this.life = 20;
+                this.color = color;
+                this.size = Math.random() * 4 + 2;
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vy += 0.1;
+                this.life--;
+            }
+
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.globalAlpha = this.life / 20;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1;
+            }
+        }
+
+        // 生成虫子
+        function spawnBugs() {
+            const config = gameState.level === 1 ? GAME_CONFIG.level1 : 
+                          gameState.level === 2 ? GAME_CONFIG.level2 : 
+                          GAME_CONFIG.level3;
+
+            if (Math.random() < config.bugSpawnRate && bugs.length < config.maxBugs) {
+                const types = ['worm', 'fly', 'caterpillar'];
+                const randomType = types[Math.floor(Math.random() * types.length)];
+                bugs.push(new Bug(randomType));
+            }
+        }
+
+        // 更新虫子
+        function updateBugs() {
+            for (let i = bugs.length - 1; i >= 0; i--) {
+                const bug = bugs[i];
+                bug.update();
+
+                // 检查是否到达花盆
+                if (bug.y < pot.y + 60 && !bug.dead) {
+                    bug.dead = true;
+                    gameState.health--;
+                    updateHealth();
+                    
+                    if (gameState.health <= 0) {
+                        endGame(false);
+                        return;
+                    }
+                }
+
+                // 移除死亡或离开屏幕的虫子
+                if (bug.dead || bug.isOffScreen()) {
+                    bugs.splice(i, 1);
+                }
+            }
+        }
+
+        // 绘制虫子
+        function drawBugs() {
+            for (const bug of bugs) {
+                bug.draw();
+            }
+        }
+
+        // 刀子轨迹
+        let slashTrail = [];
+
+        // 触摸事件
+        document.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            const rect = canvas.getBoundingClientRect();
+            const x = touch.clientX - rect.left;
+            const y = touch.clientY - rect.top;
+
+            slashTrail.push({ x, y, life: 10 });
+
+            // 检查与虫子的碰撞
+            for (let i = bugs.length - 1; i >= 0; i--) {
+                const bug = bugs[i];
+                if (!bug.dead && bug.checkCollision(x, y)) {
+                    bug.health--;
+                    
+                    // 创建血液粒子
+                    for (let j = 0; j < 8; j++) {
+                        particles.push(new Particle(bug.x, bug.y, '#FF0000'));
+                    }
+
+                    if (bug.health <= 0) {
+                        bug.dead = true;
+                        gameState.score += bug.points;
+                        gameState.levelScore += bug.points;
+                        updateScore();
+
+                        // 检查是否升级
+                        if (gameState.levelScore >= gameState.levelTarget && gameState.level < 3) {
+                            gameState.level++;
+                            gameState.levelScore = 0;
+                            updateLevel();
+                        } else if (gameState.level === 3 && gameState.levelScore >= gameState.levelTarget * 1.5) {
+                            endGame(true);
+                            return;
+                        }
+                    }
+
+                    // 创建更多血液粒子
+                    for (let j = 0; j < 5; j++) {
+                        particles.push(new Particle(x, y, '#FF6B6B'));
+                    }
+                }
+            }
+        }, { passive: false });
+
+        // 绘制刀子轨迹
+        function drawSlashTrail() {
+            ctx.strokeStyle = 'rgba(255, 215, 0, 0.8)';
+            ctx.lineWidth = 4;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+
+            for (let i = 0; i < slashTrail.length - 1; i++) {
+                const p1 = slashTrail[i];
+                const p2 = slashTrail[i + 1];
+                ctx.beginPath();
+                ctx.moveTo(p1.x, p1.y);
+                ctx.lineTo(p2.x, p2.y);
+                ctx.stroke();
+                p1.life--;
+            }
+
+            slashTrail = slashTrail.filter(p => p.life > 0);
+        }
+
+        // 粒子更新和绘制
+        function updateParticles() {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                particles[i].update();
+                if (particles[i].life <= 0) {
+                    particles.splice(i, 1);
+                }
+            }
+        }
+
+        function drawParticles() {
+            for (const particle of particles) {
+                particle.draw();
+            }
+        }
+
+        // 更新UI
+        function updateScore() {
+            document.getElementById('score').textContent = gameState.score;
+        }
+
+        function updateHealth() {
+            const hearts = '❤️'.repeat(Math.max(0, gameState.health));
+            document.getElementById('health').textContent = hearts || '💀';
+        }
+
+        function updateLevel() {
+            document.getElementById('level').textContent = `${gameState.level}/3`;
+        }
+
+        // 游戏结束
+        function endGame(win) {
+            gameState.running = false;
+            const screen = document.getElementById('gameOverScreen');
+            const title = document.getElementById('gameOverTitle');
+            const text = document.getElementById('gameOverText');
+            const level = document.getElementById('gameOverLevel');
+
+            if (win) {
+                title.textContent = '🎉 恭喜通关！';
+                title.style.color = '#FFD700';
+                text.textContent = `最终分数: ${gameState.score}`;
+                level.textContent = '你已完成所有关卡！';
+                level.style.color = '#2ECC71';
+            } else {
+                title.textContent = '💀 游戏失败';
+                title.style.color = '#FF6B6B';
+                text.textContent = `最终分数: ${gameState.score}`;
+                level.textContent = `到达第 ${gameState.level} 关`;
+                level.style.color = '#FF6B6B';
+            }
+
+            screen.classList.add('show');
+        }
+
+        // 游戏循环
+        function gameLoop() {
+            // 背景
+            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            gradient.addColorStop(0, '#87CEEB');
+            gradient.addColorStop(1, '#90EE90');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 土地
+            ctx.fillStyle = '#8B6F47';
+            ctx.fillRect(0, canvas.height - 80, canvas.width, 80);
+
+            if (gameState.running) {
+                spawnBugs();
+                updateBugs();
+                updateParticles();
+                gameState.frameCount++;
+            }
+
+            // 绘制
+            drawBugs();
+            drawParticles();
+            pot.draw();
+            drawSlashTrail();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        updateScore();
+        updateHealth();
+        updateLevel();
+        gameLoop();
+    </script>
+</body>
+</html>
