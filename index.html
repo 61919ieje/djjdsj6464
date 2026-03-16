@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>螃蟹跑酷游戏</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            background: #000;
+            font-family: Arial, sans-serif;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+            overflow: hidden;
+        }
+
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            touch-action: none;
+        }
+
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            background: linear-gradient(180deg, #87CEEB 0%, #E0F6FF 100%);
+        }
+
+        #scoreBoard {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #333;
+            font-size: 24px;
+            font-weight: bold;
+            z-index: 100;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 10px 20px;
+            border-radius: 10px;
+        }
+
+        #score {
+            display: block;
+            font-size: 32px;
+            color: #ff6b6b;
+        }
+
+        #gameOver {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.95);
+            padding: 40px;
+            border-radius: 15px;
+            text-align: center;
+            z-index: 200;
+            display: none;
+            border: 4px solid #fff;
+            width: 85%;
+            max-width: 400px;
+        }
+
+        #gameOver h1 {
+            font-size: 40px;
+            color: #fff;
+            margin-bottom: 20px;
+        }
+
+        #gameOver p {
+            font-size: 24px;
+            color: #ffd700;
+            margin-bottom: 30px;
+        }
+
+        #gameOver button {
+            padding: 16px 40px;
+            font-size: 20px;
+            background: linear-gradient(45deg, #ff6b6b, #ff8787);
+            color: #fff;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4);
+        }
+
+        #gameOver button:active {
+            transform: scale(0.95);
+        }
+
+        #instructions {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            color: #333;
+            font-size: 16px;
+            font-weight: bold;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 10px 20px;
+            border-radius: 10px;
+            z-index: 50;
+        }
+
+        @media (max-height: 700px) {
+            #scoreBoard {
+                font-size: 18px;
+                top: 10px;
+                left: 10px;
+                padding: 8px 15px;
+            }
+
+            #score {
+                font-size: 24px;
+            }
+
+            #gameOver {
+                padding: 30px;
+            }
+
+            #gameOver h1 {
+                font-size: 32px;
+            }
+
+            #gameOver p {
+                font-size: 20px;
+            }
+
+            #instructions {
+                font-size: 14px;
+                bottom: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    
+    <div id="scoreBoard">
+        分数: <span id="score">0</span>
+    </div>
+
+    <div id="gameOver">
+        <h1>游戏结束！</h1>
+        <p id="finalScore">最终分数: 0</p>
+        <button onclick="location.reload()">重新开始</button>
+    </div>
+
+    <div id="instructions">
+        👆 点击屏幕跳跃 | 躲避障碍物
+    </div>
+
+    <script>
+        'use strict';
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        const config = {
+            gravity: 0.6,
+            jumpPower: 15,
+            groundOffset: 100
+        };
+
+        let gameRunning = true;
+        let score = 0;
+        let spawnRate = 120;
+        let spawnCounter = 0;
+        let frameCount = 0;
+
+        const crab = {
+            x: 80,
+            y: canvas.height - config.groundOffset,
+            width: 35,
+            height: 35,
+            velocityY: 0,
+            isJumping: false,
+
+            update() {
+                this.velocityY += config.gravity;
+                this.y += this.velocityY;
+
+                if (this.y >= canvas.height - config.groundOffset) {
+                    this.y = canvas.height - config.groundOffset;
+                    this.velocityY = 0;
+                    this.isJumping = false;
+                }
+            },
+
+            jump() {
+                if (!this.isJumping) {
+                    this.velocityY = -config.jumpPower;
+                    this.isJumping = true;
+                }
+            },
+
+            draw() {
+                ctx.fillStyle = '#8B4513';
+                ctx.beginPath();
+                ctx.ellipse(this.x, this.y + 5, 13, 16, 0, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = '#A0522D';
+                ctx.beginPath();
+                ctx.arc(this.x, this.y - 8, 11, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(this.x - 4, this.y - 12, 3.5, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(this.x + 4, this.y - 12, 3.5, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = '#000';
+                ctx.beginPath();
+                ctx.arc(this.x - 4, this.y - 12, 2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(this.x + 4, this.y - 12, 2, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.strokeStyle = '#8B4513';
+                ctx.lineWidth = 2.5;
+                ctx.lineCap = 'round';
+                
+                ctx.beginPath();
+                ctx.moveTo(this.x - 13, this.y - 2);
+                ctx.lineTo(this.x - 22, this.y - 8);
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.moveTo(this.x + 13, this.y - 2);
+                ctx.lineTo(this.x + 22, this.y - 8);
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.moveTo(this.x - 8, this.y + 16);
+                ctx.lineTo(this.x - 12, this.y + 24);
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y + 16);
+                ctx.lineTo(this.x, this.y + 25);
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.moveTo(this.x + 8, this.y + 16);
+                ctx.lineTo(this.x + 12, this.y + 24);
+                ctx.stroke();
+            }
+        };
+
+        class Obstacle {
+            constructor(type) {
+                this.type = type;
+                this.x = canvas.width;
+                this.width = 28;
+                this.height = type === 'coral' ? 65 : 55;
+                this.y = canvas.height - this.height - 20;
+                this.speed = 7 + Math.random() * 3;
+                this.passed = false;
+            }
+
+            update() {
+                this.x -= this.speed;
+            }
+
+            draw() {
+                if (this.type === 'coral') {
+                    this.drawCoral();
+                } else {
+                    this.drawEel();
+                }
+            }
+
+            drawCoral() {
+                ctx.fillStyle = '#FF6B6B';
+                ctx.strokeStyle = '#CC5555';
+                ctx.lineWidth = 2;
+
+                ctx.beginPath();
+                ctx.moveTo(this.x + 5, this.y + this.height);
+                ctx.lineTo(this.x + 8, this.y + this.height - 16);
+                ctx.lineTo(this.x + 12, this.y + this.height);
+                ctx.lineTo(this.x + 15, this.y + this.height - 22);
+                ctx.lineTo(this.x + 20, this.y + this.height);
+                ctx.lineTo(this.x + 18, this.y + this.height - 12);
+                ctx.lineTo(this.x + 25, this.y + this.height);
+                ctx.lineTo(this.x + 13, this.y + 8);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.strokeStyle = '#FF8A8A';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(this.x + 10, this.y + this.height - 10);
+                ctx.lineTo(this.x + 10, this.y + 15);
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.moveTo(this.x + 18, this.y + this.height - 8);
+                ctx.lineTo(this.x + 18, this.y + 15);
+                ctx.stroke();
+            }
+
+            drawEel() {
+                ctx.strokeStyle = '#4A90E2';
+                ctx.lineWidth = 5;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+
+                ctx.beginPath();
+                const waveAmount = 8;
+                for (let i = 0; i <= this.width; i += this.width / 10) {
+                    const waveY = this.y + this.height / 2 + 
+                                 Math.sin((i / this.width) * Math.PI * 2 + frameCount * 0.1) * waveAmount;
+                    if (i === 0) {
+                        ctx.moveTo(this.x + i, waveY);
+                    } else {
+                        ctx.lineTo(this.x + i, waveY);
+                    }
+                }
+                ctx.stroke();
+
+                ctx.fillStyle = '#000';
+                ctx.beginPath();
+                ctx.arc(this.x + this.width - 4, this.y + this.height / 2 - 5, 2.5, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(this.x + this.width - 2, this.y + this.height / 2 - 4, 1, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            isOffScreen() {
+                return this.x + this.width < 0;
+            }
+
+            collidesWith(crab) {
+                return (
+                    crab.x < this.x + this.width &&
+                    crab.x + crab.width > this.x &&
+                    crab.y < this.y + this.height &&
+                    crab.y + crab.height > this.y
+                );
+            }
+        }
+
+        const obstacles = [];
+
+        function spawnObstacle() {
+            spawnCounter++;
+            if (spawnCounter >= spawnRate) {
+                const types = ['coral', 'eel'];
+                const randomType = types[Math.floor(Math.random() * types.length)];
+                obstacles.push(new Obstacle(randomType));
+                spawnCounter = 0;
+                spawnRate = Math.max(70, 120 - score * 0.5);
+            }
+        }
+
+        function updateObstacles() {
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                const obstacle = obstacles[i];
+                obstacle.update();
+
+                if (obstacle.collidesWith(crab)) {
+                    gameRunning = false;
+                    endGame();
+                    return;
+                }
+
+                if (!obstacle.passed && obstacle.x + obstacle.width < crab.x) {
+                    obstacle.passed = true;
+                    score++;
+                    document.getElementById('score').textContent = score;
+                }
+
+                if (obstacle.isOffScreen()) {
+                    obstacles.splice(i, 1);
+                }
+            }
+        }
+
+        function drawObstacles() {
+            for (const obstacle of obstacles) {
+                obstacle.draw();
+            }
+        }
+
+        function drawGround() {
+            ctx.fillStyle = '#90EE90';
+            ctx.fillRect(0, canvas.height - 20, canvas.width, 20);
+
+            ctx.strokeStyle = '#228B22';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(0, canvas.height - 20);
+            ctx.lineTo(canvas.width, canvas.height - 20);
+            ctx.stroke();
+        }
+
+        function endGame() {
+            document.getElementById('finalScore').textContent = `最终分数: ${score}`;
+            document.getElementById('gameOver').style.display = 'block';
+        }
+
+        document.addEventListener('click', () => {
+            if (gameRunning) {
+                crab.jump();
+            }
+        });
+
+        document.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            if (gameRunning) {
+                crab.jump();
+            }
+        }, { passive: false });
+
+        function gameLoop() {
+            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            gradient.addColorStop(0, '#87CEEB');
+            gradient.addColorStop(1, '#E0F6FF');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            if (gameRunning) {
+                crab.update();
+                spawnObstacle();
+                updateObstacles();
+                frameCount++;
+
+                drawObstacles();
+                drawGround();
+                crab.draw();
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        gameLoop();
+    </script>
+</body>
+</html>
