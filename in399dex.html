@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎮 简单投篮 · 拖拽小游戏</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+        }
+        body {
+            background: linear-gradient(145deg, #1b3b4f 0%, #2a5f7a 100%);
+            min-height: 100vh;
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Segoe UI', Roboto, system-ui, sans-serif;
+        }
+        .game-wrapper {
+            background: #174459;
+            padding: 25px 30px 30px 30px;
+            border-radius: 48px;
+            box-shadow: 0 20px 30px rgba(0, 0, 0, 0.6), inset 2px 2px 5px rgba(255, 255, 255, 0.1);
+        }
+        .canvas-container {
+            display: flex;
+            justify-content: center;
+        }
+        canvas {
+            display: block;
+            width: 800px;
+            height: 500px;
+            border-radius: 40px;
+            background: radial-gradient(circle at 20% 30%, #9bc5d3, #3a6f8c);
+            box-shadow: inset 0 0 20px #0e2e3f, 0 15px 18px rgba(0,0,0,0.4);
+            cursor: grab;
+            touch-action: none; /* 防止触摸时滚动/缩放 */
+        }
+        canvas.dragging {
+            cursor: grabbing;
+        }
+        .panel {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 20px;
+            color: #f9e1a4;
+            text-shadow: 2px 2px 0 #0f2c38;
+            font-weight: bold;
+        }
+        .score-box {
+            background: #1f4a5e;
+            padding: 12px 28px;
+            border-radius: 60px;
+            font-size: 28px;
+            letter-spacing: 2px;
+            box-shadow: inset 0 -3px 0 #08323f, 0 6px 10px black;
+            border: 1px solid #ffcf9a;
+            color: #ffd78c;
+        }
+        .score-box span {
+            font-size: 20px;
+            margin-right: 10px;
+            color: #c0e4ff;
+        }
+        button {
+            background: #f6c27a;
+            border: none;
+            padding: 12px 32px;
+            border-radius: 40px;
+            font-size: 24px;
+            font-weight: bold;
+            color: #1c3c4b;
+            box-shadow: 0 7px 0 #a05f2c, 0 10px 15px rgba(0, 0, 0, 0.3);
+            cursor: pointer;
+            transition: 0.07s ease;
+            border: 1px solid #ffdaa0;
+            letter-spacing: 1px;
+        }
+        button:active {
+            transform: translateY(6px);
+            box-shadow: 0 1px 0 #a05f2c, 0 8px 12px rgba(0, 0, 0, 0.3);
+        }
+        .hint {
+            font-size: 20px;
+            background: #0d3645;
+            padding: 10px 22px;
+            border-radius: 40px;
+            color: #cbe9ff;
+            box-shadow: inset 0 -2px 0 #02131c;
+        }
+        .hint i {
+            font-style: normal;
+            margin-right: 6px;
+            font-size: 24px;
+        }
+    </style>
+</head>
+<body>
+<div class="game-wrapper">
+    <div class="canvas-container">
+        <canvas id="gameCanvas" width="800" height="500"></canvas>
+    </div>
+    <div class="panel">
+        <div class="score-box">
+            <span>🏀</span> <span id="scoreDisplay">0</span>
+        </div>
+        <div class="hint">
+            <i>👇</i> 拖拽篮球 松开投篮
+        </div>
+        <button id="resetBtn">🔄 重置</button>
+    </div>
+</div>
+
+<script>
+    (function() {
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreSpan = document.getElementById('scoreDisplay');
+
+        // 固定参数
+        const width = 800, height = 500;
+        const groundY = height - 40;          // 地面高度 (y坐标)
+        const ballRadius = 16;
+
+        // 篮筐位置 (中心点)
+        const hoop = {
+            x: 620,
+            y: 180,
+            radius: 24,         // 篮圈半径（视觉 + 得分判定）
+        };// 篮球初始状态
+        let ball = {
+            x: 220,
+            y: groundY - ballRadius - 6,  // 放在地面上方一点
+            vx: 0,
+            vy: 0,
+            r: ballRadius
+        };
+
+        // 游戏状态
+        let score = 0;
+        let isMoving = false;           // 篮球是否处于运动（物理更新）
+        let scoredThisShot = false;      // 本次投篮是否已经得分（防止重复加分）
+        let dragging = false;            // 是否正在拖拽
+        let dragStartX = 0, dragStartY = 0; // 拖拽时鼠标位置 (用于画线)
+        let mouseDownOnBall = false;      // 鼠标按下时是否在球上
+
+        // 物理常数
+        const GRAVITY = 0.4;
+        const DAMP = 0.985;               // 空气阻力/阻尼
+        const BOUNCE_FLOOR = 0.65;         // 地面反弹系数
+        const BOUNCE_WALL = 0.6;            // 墙壁反弹系数
+        const MAX_DRAG_DIST = 140;          // 最大拖拽距离 (限制力度)
+        const FORCE_FACTOR = 0.12;           // 拖拽向量转换成速度的系数
+
+        // 重置篮球到初始位置 (不清除分数)
+        function resetBallPosition() {
+            ball.x = 220;
+            ball.y = groundY - ball.r - 6;
+            ball.vx = 0;
+            ball.vy = 0;
+            isMoving = false;
+            scoredThisShot = false;
+            dragging = false;
+            mouseDownOnBall = false;
+            canvas.classList.remove('dragging');
+        }
+
+        // 重置游戏 (分数归零 + 球复位)
+        function resetGame() {
+            score = 0;
+            updateScore();
+            resetBallPosition();
+        }
+
+        // 更新分数显示
+        function updateScore() {
+            scoreSpan.textContent = score;
+        }
+
+        // ---------- 鼠标/触摸事件 ----------
+        function handleMouseDown(e) {
+            e.preventDefault();
+            // 获取画布相对坐标
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+
+            let clientX, clientY;
+            if (e.touches) {
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+            } else {
+                clientX = e.clientX;
+                clientY = e.clientY;
+            }
+
+            const mouseX = (clientX - rect.left) * scaleX;
+            const mouseY = (clientY - rect.top) * scaleY;
+
+            // 只有在球静止时才允许拖拽
+            if (isMoving) return;
+
+            // 检查是否点击在篮球上
+            const dx = mouseX - ball.x;
+            const dy = mouseY - ball.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist <= ball.r + 8) {  // 稍微宽松些
+                dragging = true;
+                mouseDownOnBall = true;
+                dragStartX = mouseX;
+                dragStartY = mouseY;
+                canvas.classList.add('dragging');
+            }
+        }
+
+        function handleMouseMove(e) {
+            if (!dragging || !mouseDownOnBall) return;
+            e.preventDefault();
+
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+
+            let clientX, clientY;
+            if (e.touches) {
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+            } else {
+                clientX = e.clientX;
+                clientY = e.clientY;
+            }
+
+            const mouseX = (clientX - rect.left) * scaleX;
+            const mouseY = (clientY - rect.top) * scaleY;
+
+            // 更新拖拽点（用于绘制拉线）
+            dragStartX = mouseX;
+            dragStartY = mouseY;
+
+            // 限制拖拽提示范围（仅视觉限制，物理计算时再限制一次）
+        }
+
+        function handleMouseUp(e) {
+            if (!dragging || !mouseDownOnBall) {
+                // 确保移除拖拽状态
+                dragging = false;
+                mouseDownOnBall = false;
+                canvas.classList.remove('dragging');
+                return;
+            }
+
+            e.preventDefault();
+
+            // 计算拖拽向量 (ball -> 鼠标方向, 但投篮应该是反向: 向后拉, 球向前)
+            // 拖拽线方向 = 鼠标位置 - 球心, 投篮方向 = 球心 - 鼠标位置 (即反向)
+            let dx = ball.x - dragStartX;
+            let dy = ball.y - dragStartY;// 限制最大拖拽距离 (防止过于暴力)
+            const dist = Math.hypot(dx, dy);
+            if (dist > MAX_DRAG_DIST) {
+                const ratio = MAX_DRAG_DIST / dist;
+                dx *= ratio;
+                dy *= ratio;
+            }
+
+            // 施加力 (速度)
+            ball.vx = dx * FORCE_FACTOR;
+            ball.vy = dy * FORCE_FACTOR;
+
+            // 如果力度太小 (<0.5) 就不投了，避免轻碰乱动
+            if (Math.hypot(ball.vx, ball.vy) > 0.8) {
+                isMoving = true;            // 开始物理运动
+                scoredThisShot = false;      // 新的一投，还没得分
+            } else {
+                // 力度太小，不投，保持原位
+                ball.vx = 0;
+                ball.vy = 0;
+            }
+
+            // 结束拖拽
+            dragging = false;
+            mouseDownOnBall = false;
+            canvas.classList.remove('dragging');
+        }
+
+        // 防止鼠标离开画布还卡在拖拽状态
+        function handleMouseLeave(e) {
+            if (dragging) {
+                // 类似强制取消拖拽，但不投篮
+                dragging = false;
+                mouseDownOnBall = false;
+                canvas.classList.remove('dragging');
+            }
+        }
+
+        // 注册事件 (同时支持触摸与鼠标)
+        canvas.addEventListener('mousedown', handleMouseDown);
+        canvas.addEventListener('mousemove', handleMouseMove);
+        canvas.addEventListener('mouseup', handleMouseUp);
+        canvas.addEventListener('mouseleave', handleMouseLeave);
+
+        // 触摸事件
+        canvas.addEventListener('touchstart', handleMouseDown, { passive: false });
+        canvas.addEventListener('touchmove', handleMouseMove, { passive: false });
+        canvas.addEventListener('touchend', handleMouseUp);
+        canvas.addEventListener('touchcancel', handleMouseLeave);
+
+        // 重置按钮
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            resetGame();
+        });
+
+        // ---------- 物理更新 + 碰撞检测 ----------
+        function updatePhysics() {
+            if (!isMoving) return;
+
+            // 阻尼 (空气阻力)
+            ball.vx *= DAMP;
+            ball.vy *= DAMP;
+
+            // 重力
+            ball.vy += GRAVITY;
+
+            // 临时新位置
+            let newX = ball.x + ball.vx;
+            let newY = ball.y + ball.vy;
+
+            // 墙壁碰撞 (左右)
+            if (newX - ball.r < 0) {
+                newX = ball.r;
+                ball.vx = -ball.vx * BOUNCE_WALL;
+            } else if (newX + ball.r > width) {
+                newX = width - ball.r;
+                ball.vx = -ball.vx * BOUNCE_WALL;
+            }
+
+            // 顶部碰撞 (防止飞出去)
+            if (newY - ball.r < 0) {
+                newY = ball.r;
+                ball.vy = -ball.vy * BOUNCE_WALL;
+            }
+
+            // 地面碰撞
+            if (newY + ball.r > groundY) {
+                newY = groundY - ball.r;
+                // 反转垂直速度，并损耗能量
+                ball.vy = -ball.vy * BOUNCE_FLOOR;
+                // 水平方向也受一点摩擦
+                ball.vx *= 0.95;
+
+                // 如果速度很小，直接标记为静止 (避免微动)
+                if (Math.abs(ball.vy) < 0.3 && Math.abs(ball.vx) < 0.2 && newY + ball.r >= groundY - 2) {
+                    // 静止在地面 -> 重置球 (没得分的情况)
+                    // 但是要确保不是因为得分重置
+                    resetBallPosition();
+                    return;  // 直接跳过后续更新
+                }
+            }
+
+            // 应用新位置
+            ball.x = newX;
+            ball.y = newY;
+
+            // 再次检查是否出界（太左、太右、太下面掉出画面底部）—— 重置
+            if (ball.x + ball.r < 0  ball.x - ball.r > width  ball.y - ball.r > height) {
+                resetBallPosition();
+                return;
+            }
+
+            // ----- 得分检测 (篮筐) -----
+            const distToHoop = Math.hypot(ball.x - hoop.x, ball.y - hoop.y);
+            // 得分条件: 距离小于篮圈半径+球半径*0.8 (让判定稍微严格一点) 且 球正在下降(vy>0) 且 还没得分
+            if (distToHoop < hoop.radius + ball.r * 0.7 && ball.vy > 0 && !scoredThisShot && isMoving) {
+                // 得分!
+                score++;
+                updateScore();
+                scoredThisShot = true;   // 这一投已经得分
+                resetBallPosition();      // 球回到初始位置 (保留分数)
+                return;
+              }// 如果球几乎静止且在地面附近，自动复位 (避免一直停在各处)
+            if (Math.abs(ball.vy) < 0.15 && Math.abs(ball.vx) < 0.15 && ball.y + ball.r >= groundY - 5) {
+                resetBallPosition();
+                return;
+            }
+        }
+
+        // ---------- 绘制 ----------
+        function draw() {
+            ctx.clearRect(0, 0, width, height);
+
+            // 画天空装饰 (简单的光晕)
+            ctx.fillStyle = '#94c9db';
+            ctx.globalAlpha = 0.2;
+            ctx.beginPath();
+            ctx.arc(150, 80, 120, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1.0;
+
+            // 画篮板 (简单的矩形)
+            ctx.fillStyle = '#ac8e68';
+            ctx.shadowColor = '#1e2f3a';
+            ctx.shadowBlur = 12;
+            ctx.fillRect(hoop.x - 40, hoop.y - 80, 20, 130);
+            ctx.shadowBlur = 0;
+
+            // 画篮圈 (空心圆环)
+            ctx.beginPath();
+            ctx.arc(hoop.x, hoop.y, hoop.radius, 0, 2 * Math.PI);
+            ctx.lineWidth = 6;
+            ctx.strokeStyle = '#ffb347';
+            ctx.shadowBlur = 12;
+            ctx.shadowColor = '#b45f1b';
+            ctx.stroke();
+            // 加一点网袋效果 (几条短线)
+            ctx.beginPath();
+            ctx.strokeStyle = '#f2d06b';
+            ctx.lineWidth = 2;
+            for (let i = -1; i <= 1; i+=0.5) {
+                ctx.beginPath();
+                ctx.moveTo(hoop.x + i*10, hoop.y + 8);
+                ctx.lineTo(hoop.x + i*12, hoop.y + 30);
+                ctx.strokeStyle = '#e0b070';
+                ctx.stroke();
+            }
+
+            // 画地面
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#386f4b';
+            ctx.beginPath();
+            ctx.rect(0, groundY, width, height - groundY);
+            ctx.fill();
+            // 地面纹理
+            ctx.fillStyle = '#2b8c5e';
+            ctx.globalAlpha = 0.2;
+            for (let i = 0; i < width; i += 40) {
+                ctx.fillRect(i, groundY + 5, 20, 8);
+            }
+            ctx.globalAlpha = 1.0;
+
+            // 画篮球
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = '#0c1e28';
+            // 球体
+            ctx.beginPath();
+            ctx.arc(ball.x, ball.y, ball.r, 0, 2 * Math.PI);
+            ctx.fillStyle = '#d4691a';
+            ctx.fill();
+            // 篮球黑线
+            ctx.beginPath();
+            ctx.strokeStyle = '#2b1e0e';
+            ctx.lineWidth = 2.5;
+            ctx.arc(ball.x, ball.y, ball.r-1, 0, 2 * Math.PI);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(ball.x - ball.r*0.9, ball.y - ball.r*0.5);
+            ctx.lineTo(ball.x + ball.r*0.9, ball.y + ball.r*0.5);
+            ctx.moveTo(ball.x - ball.r*0.9, ball.y + ball.r*0.5);
+            ctx.lineTo(ball.x + ball.r*0.9, ball.y - ball.r*0.5);
+            ctx.stroke();
+
+            // 如果正在拖拽，画出拉力线和力度提示
+            if (dragging && mouseDownOnBall) {
+                ctx.shadowBlur = 0;
+                ctx.beginPath();
+                ctx.setLineDash([8, 8]);
+                ctx.moveTo(ball.x, ball.y);
+                ctx.lineTo(dragStartX, dragStartY);
+                ctx.strokeStyle = '#fcf4d9';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+
+                // 计算当前拖拽距离 (限制后视觉)
+                let dx = ball.x - dragStartX;
+                let dy = ball.y - dragStartY;
+                const dist = Math.hypot(dx, dy);
+                let limitedDist = Math.min(dist, MAX_DRAG_DIST);
+                let ratio = limitedDist / (dist || 1);
+                let tipX = ball.x - dx * ratio;
+                let tipY = ball.y - dy * ratio;
+
+                // 画一个半透明圆圈表示最大力度参考
+                ctx.beginPath();
+                ctx.arc(ball.x, ball.y, MAX_DRAG_DIST, 0, 2 * Math.PI);
+                ctx.strokeStyle = '#ffe49e';
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([2, 8]);
+                ctx.stroke();// 力度点
+                ctx.beginPath();
+                ctx.arc(tipX, tipY, 8, 0, 2 * Math.PI);
+                ctx.fillStyle = '#ffefb0';
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = 'white';
+                ctx.fill();
+
+                ctx.setLineDash([]); // 恢复实线
+            } else {
+                ctx.setLineDash([]);
+            }
+
+            // 重置阴影
+            ctx.shadowBlur = 0;
+            ctx.shadowColor = 'transparent';
+        }
+
+        // 动画循环
+        function gameLoop() {
+            updatePhysics();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        gameLoop();
+
+        // 初始化显示
+        resetBallPosition();
+        updateScore();
+
+        // 额外处理：如果在拖拽时按下重置，取消拖拽状态
+        const originalReset = resetGame;
+        resetGame = function() {
+            dragging = false;
+            mouseDownOnBall = false;
+            canvas.classList.remove('dragging');
+            originalReset();
+        }.bind(this);
+
+        document.getElementById('resetBtn').onclick = () => {
+            dragging = false;
+            mouseDownOnBall = false;
+            canvas.classList.remove('dragging');
+            score = 0;
+            updateScore();
+            resetBallPosition();
+        };
+    })();
+</script>
+</body>
+</html>
+                
